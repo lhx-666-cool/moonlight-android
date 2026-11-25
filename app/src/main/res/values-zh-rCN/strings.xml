@@ -284,4 +284,44 @@
     <string name="summary_analog_scrolling">在鼠标模式下选择用哪个摇杆控制鼠标移动</string>
     <string name="summary_seekbar_vibrate_fallback_strength">增强或减弱设备的震动强度</string>
     <string name="analogscroll_none">默认 (两个摇杆都控制鼠标)</string>
+
+    <!-- Mobile Touch / No-Mouse-No-Keyboard Optimization Strings -->
+    <string name="title_checkbox_show_mobile_toolbar">显示移动端悬浮快捷工具栏</string>
+    <string name="summary_checkbox_show_mobile_toolbar">在串流界面显示可拖动的悬浮按钮，快速呼出虚拟键盘、PC 扩展按键、鼠标按键和触控模式切换</string>
+    <string name="title_touchpad_sensitivity">触控板指针灵敏度</string>
+    <string name="summary_touchpad_sensitivity">调整触控板模式下鼠标指针的移动速度</string>
+    <string name="suffix_touchpad_sensitivity">%</string>
+    <string name="title_touchpad_scroll_speed">双指滚轮速度</string>
+    <string name="summary_touchpad_scroll_speed">调整触摸屏双指滑动滚轮的灵敏度</string>
+    <string name="suffix_touchpad_scroll_speed">%</string>
+    <string name="title_checkbox_invert_touch_scroll">反转触摸滚动方向</string>
+    <string name="summary_checkbox_invert_touch_scroll">反转双指上下/左右滚动的方向</string>
+    <string name="title_checkbox_double_tap_drag">双击并按住拖动（触控板）</string>
+    <string name="summary_checkbox_double_tap_drag">在触控板模式下双击第二下不松手即可立即拖动窗口或框选文本，无需等待长按</string>
+    <string name="title_checkbox_confirm_back_exit">返回退出串流前二次确认</string>
+    <string name="summary_checkbox_confirm_back_exit">需在 2 秒内连按两次返回键才断开串流，防止全面屏侧滑手势误触退出</string>
+
+    <string name="mobile_toolbar_title">移动端快捷控制</string>
+    <string name="mobile_btn_keyboard">软键盘</string>
+    <string name="mobile_btn_extra_keys">PC 扩展键</string>
+    <string name="mobile_btn_mode_trackpad">模式：触控板</string>
+    <string name="mobile_btn_mode_direct">模式：直接触控</string>
+    <string name="mobile_btn_mouse_bar">鼠标按键栏</string>
+    <string name="mobile_btn_osc">虚拟手柄</string>
+    <string name="mobile_btn_hover_mode">仅移动光标</string>
+    <string name="mobile_btn_perf">性能浮窗</string>
+    <string name="mobile_btn_disconnect">断开串流</string>
+    <string name="mobile_section_shortcuts">常用 PC 组合快捷键</string>
+    <string name="mobile_mouse_left">左键</string>
+    <string name="mobile_mouse_middle">中键</string>
+    <string name="mobile_mouse_right">右键</string>
+    <string name="mobile_mouse_drag_lock">拖锁</string>
+    <string name="mobile_mouse_hover">悬停</string>
+    <string name="toast_switched_to_trackpad">已切换为：触控板模式</string>
+    <string name="toast_switched_to_direct_touch">已切换为：直接触控模式</string>
+    <string name="toast_hover_mode_on">直接触控：仅移动光标模式已开启（拖动不点击）</string>
+    <string name="toast_hover_mode_off">直接触控：仅移动光标模式已关闭</string>
+    <string name="toast_drag_lock_on">已按住鼠标左键（拖动锁定开启）</string>
+    <string name="toast_drag_lock_off">已松开鼠标左键</string>
+    <string name="toast_press_back_again_exit">再按一次返回键断开串流</string>
 </resources>

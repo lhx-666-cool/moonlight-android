@@ -6,6 +6,7 @@ import android.view.View;
 
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.input.MouseButtonPacket;
+import com.limelight.preferences.PreferenceConfiguration;
 
 public class AbsoluteTouchContext implements TouchContext {
     private int lastTouchDownX = 0;
@@ -19,6 +20,12 @@ public class AbsoluteTouchContext implements TouchContext {
     private boolean cancelled;
     private boolean confirmedLongPress;
     private boolean confirmedTap;
+    private boolean twoFingerMoved;
+    private boolean hoverOnlyMode;
+
+    private static int sharedPrimaryTouchX = 0;
+    private static int sharedPrimaryTouchY = 0;
+    private static long sharedPrimaryTouchTime = 0;
 
     private final Runnable longPressRunnable = new Runnable() {
         @Override
@@ -46,6 +53,7 @@ public class AbsoluteTouchContext implements TouchContext {
     private final NvConnection conn;
     private final int actionIndex;
     private final View targetView;
+    private final PreferenceConfiguration prefConfig;
     private final Handler handler;
 
     private final Runnable leftButtonUpRunnable = new Runnable() {
@@ -55,23 +63,51 @@ public class AbsoluteTouchContext implements TouchContext {
         }
     };
 
+    private final Runnable rightButtonUpRunnable = new Runnable() {
+        @Override
+        public void run() {
+            conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_RIGHT);
+        }
+    };
+
     private static final int SCROLL_SPEED_FACTOR = 3;
 
     private static final int LONG_PRESS_TIME_THRESHOLD = 650;
-    private static final int LONG_PRESS_DISTANCE_THRESHOLD = 30;
-
+    private static final int TWO_FINGER_TAP_TIME_THRESHOLD = 280;
     private static final int DOUBLE_TAP_TIME_THRESHOLD = 250;
-    private static final int DOUBLE_TAP_DISTANCE_THRESHOLD = 60;
-
     private static final int TOUCH_DOWN_DEAD_ZONE_TIME_THRESHOLD = 100;
-    private static final int TOUCH_DOWN_DEAD_ZONE_DISTANCE_THRESHOLD = 20;
+
+    private final int longPressDistanceThreshold;
+    private final int doubleTapDistanceThreshold;
+    private final int touchDownDeadZoneDistanceThreshold;
+    private final int twoFingerTapDistanceThreshold;
 
     public AbsoluteTouchContext(NvConnection conn, int actionIndex, View view)
+    {
+        this(conn, actionIndex, view, PreferenceConfiguration.readPreferences(view.getContext()));
+    }
+
+    public AbsoluteTouchContext(NvConnection conn, int actionIndex, View view, PreferenceConfiguration prefConfig)
     {
         this.conn = conn;
         this.actionIndex = actionIndex;
         this.targetView = view;
+        this.prefConfig = prefConfig;
         this.handler = new Handler(Looper.getMainLooper());
+
+        float density = view.getResources().getDisplayMetrics().density;
+        this.longPressDistanceThreshold = Math.max(16, Math.round(12 * density));
+        this.doubleTapDistanceThreshold = Math.max(30, Math.round(24 * density));
+        this.touchDownDeadZoneDistanceThreshold = Math.max(12, Math.round(8 * density));
+        this.twoFingerTapDistanceThreshold = Math.max(16, Math.round(12 * density));
+    }
+
+    public void setHoverOnlyMode(boolean hoverOnlyMode) {
+        this.hoverOnlyMode = hoverOnlyMode;
+    }
+
+    public boolean isHoverOnlyMode() {
+        return hoverOnlyMode;
     }
 
     @Override
@@ -91,12 +127,21 @@ public class AbsoluteTouchContext implements TouchContext {
         lastTouchLocationX = lastTouchDownX = eventX;
         lastTouchLocationY = lastTouchDownY = eventY;
         lastTouchDownTime = eventTime;
-        cancelled = confirmedTap = confirmedLongPress = false;
+        cancelled = confirmedTap = confirmedLongPress = twoFingerMoved = false;
 
         if (actionIndex == 0) {
-            // Start the timers
-            startTapDownTimer();
-            startLongPressTimer();
+            sharedPrimaryTouchX = eventX;
+            sharedPrimaryTouchY = eventY;
+            sharedPrimaryTouchTime = eventTime;
+
+            if (hoverOnlyMode) {
+                updatePosition(eventX, eventY);
+            }
+            else {
+                // Start the timers
+                startTapDownTimer();
+                startLongPressTimer();
+            }
         }
 
         return true;
@@ -129,23 +174,36 @@ public class AbsoluteTouchContext implements TouchContext {
             cancelLongPressTimer();
             cancelTapDownTimer();
 
-            // Raise the mouse buttons that we currently have down
-            if (confirmedLongPress) {
-                conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_RIGHT);
-            }
-            else if (confirmedTap) {
-                conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_LEFT);
-            }
-            else {
-                // If we get here, this means that the tap completed within the touch down
-                // deadzone time. We'll need to send the touch down and up events now at the
-                // original touch down position.
-                tapConfirmed();
+            if (!hoverOnlyMode) {
+                // Raise the mouse buttons that we currently have down
+                if (confirmedLongPress) {
+                    conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_RIGHT);
+                }
+                else if (confirmedTap) {
+                    conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_LEFT);
+                }
+                else {
+                    // If we get here, this means that the tap completed within the touch down
+                    // deadzone time. We'll need to send the touch down and up events now at the
+                    // original touch down position.
+                    tapConfirmed();
 
-                // Release the left mouse button in 100ms to allow for apps that use polling
-                // to detect mouse button presses.
-                handler.removeCallbacks(leftButtonUpRunnable);
-                handler.postDelayed(leftButtonUpRunnable, 100);
+                    // Release the left mouse button in 100ms to allow for apps that use polling
+                    // to detect mouse button presses.
+                    handler.removeCallbacks(leftButtonUpRunnable);
+                    handler.postDelayed(leftButtonUpRunnable, 100);
+                }
+            }
+        }
+        else if (actionIndex == 1) {
+            if (!twoFingerMoved && (eventTime - lastTouchDownTime) <= TWO_FINGER_TAP_TIME_THRESHOLD) {
+                // Quick two-finger tap sends right click at the primary finger's target location
+                int targetX = (eventTime - sharedPrimaryTouchTime <= 1000) ? sharedPrimaryTouchX : eventX;
+                int targetY = (eventTime - sharedPrimaryTouchTime <= 1000) ? sharedPrimaryTouchY : eventY;
+                updatePosition(targetX, targetY);
+                conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_RIGHT);
+                handler.removeCallbacks(rightButtonUpRunnable);
+                handler.postDelayed(rightButtonUpRunnable, 100);
             }
         }
 
@@ -173,7 +231,7 @@ public class AbsoluteTouchContext implements TouchContext {
     }
 
     private void tapConfirmed() {
-        if (confirmedTap || confirmedLongPress) {
+        if (confirmedTap || confirmedLongPress || hoverOnlyMode) {
             return;
         }
 
@@ -182,7 +240,7 @@ public class AbsoluteTouchContext implements TouchContext {
 
         // Left button down at original position
         if (lastTouchDownTime - lastTouchUpTime > DOUBLE_TAP_TIME_THRESHOLD ||
-                distanceExceeds(lastTouchDownX - lastTouchUpX, lastTouchDownY - lastTouchUpY, DOUBLE_TAP_DISTANCE_THRESHOLD)) {
+                distanceExceeds(lastTouchDownX - lastTouchUpX, lastTouchDownY - lastTouchUpY, doubleTapDistanceThreshold)) {
             // Don't reposition for finger down events within the deadzone. This makes double-clicking easier.
             updatePosition(lastTouchDownX, lastTouchDownY);
         }
@@ -197,19 +255,44 @@ public class AbsoluteTouchContext implements TouchContext {
         }
 
         if (actionIndex == 0) {
-            if (distanceExceeds(eventX - lastTouchDownX, eventY - lastTouchDownY, LONG_PRESS_DISTANCE_THRESHOLD)) {
-                // Moved too far since touch down. Cancel the long press timer.
-                cancelLongPressTimer();
-            }
-
-            // Ignore motion within the deadzone period after touch down
-            if (confirmedTap || distanceExceeds(eventX - lastTouchDownX, eventY - lastTouchDownY, TOUCH_DOWN_DEAD_ZONE_DISTANCE_THRESHOLD)) {
-                tapConfirmed();
+            if (hoverOnlyMode) {
                 updatePosition(eventX, eventY);
+            }
+            else {
+                if (distanceExceeds(eventX - lastTouchDownX, eventY - lastTouchDownY, longPressDistanceThreshold)) {
+                    // Moved too far since touch down. Cancel the long press timer.
+                    cancelLongPressTimer();
+                }
+
+                // Ignore motion within the deadzone period after touch down
+                if (confirmedTap || distanceExceeds(eventX - lastTouchDownX, eventY - lastTouchDownY, touchDownDeadZoneDistanceThreshold)) {
+                    tapConfirmed();
+                    updatePosition(eventX, eventY);
+                }
             }
         }
         else if (actionIndex == 1) {
-            conn.sendMouseHighResScroll((short)((eventY - lastTouchLocationY) * SCROLL_SPEED_FACTOR));
+            if (!twoFingerMoved && distanceExceeds(eventX - lastTouchDownX, eventY - lastTouchDownY, twoFingerTapDistanceThreshold)) {
+                twoFingerMoved = true;
+            }
+            if (twoFingerMoved) {
+                double scrollScale = prefConfig != null ? (prefConfig.touchpadScrollSpeed / 100.0) : 1.0;
+                double scrollSign = (prefConfig != null && prefConfig.invertTouchScroll) ? -1.0 : 1.0;
+                int deltaY = eventY - lastTouchLocationY;
+                int deltaX = eventX - lastTouchLocationX;
+                if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+                    short scroll = (short) Math.round(deltaY * SCROLL_SPEED_FACTOR * scrollScale * scrollSign);
+                    if (scroll != 0) {
+                        conn.sendMouseHighResScroll(scroll);
+                    }
+                }
+                else {
+                    short hScroll = (short) Math.round(-deltaX * SCROLL_SPEED_FACTOR * scrollScale * scrollSign);
+                    if (hScroll != 0) {
+                        conn.sendMouseHighResHScroll(hScroll);
+                    }
+                }
+            }
         }
 
         lastTouchLocationX = eventX;

@@ -130,9 +130,51 @@
     <PreferenceCategory android:title="@string/category_input_settings"
         android:key="category_input_settings">
         <CheckBoxPreference
+            android:key="checkbox_show_mobile_toolbar"
+            android:title="@string/title_checkbox_show_mobile_toolbar"
+            android:summary="@string/summary_checkbox_show_mobile_toolbar"
+            android:defaultValue="true" />
+        <CheckBoxPreference
             android:key="checkbox_touchscreen_trackpad"
             android:title="@string/title_checkbox_touchscreen_trackpad"
             android:summary="@string/summary_checkbox_touchscreen_trackpad"
+            android:defaultValue="true" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_touchpad_sensitivity"
+            android:dependency="checkbox_touchscreen_trackpad"
+            android:defaultValue="100"
+            seekbar:min="25"
+            android:max="300"
+            seekbar:step="5"
+            seekbar:keyStep="10"
+            android:summary="@string/summary_touchpad_sensitivity"
+            android:text="@string/suffix_touchpad_sensitivity"
+            android:title="@string/title_touchpad_sensitivity" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_touchpad_scroll_speed"
+            android:defaultValue="100"
+            seekbar:min="25"
+            android:max="300"
+            seekbar:step="5"
+            seekbar:keyStep="10"
+            android:summary="@string/summary_touchpad_scroll_speed"
+            android:text="@string/suffix_touchpad_scroll_speed"
+            android:title="@string/title_touchpad_scroll_speed" />
+        <CheckBoxPreference
+            android:key="checkbox_invert_touch_scroll"
+            android:title="@string/title_checkbox_invert_touch_scroll"
+            android:summary="@string/summary_checkbox_invert_touch_scroll"
+            android:defaultValue="false" />
+        <CheckBoxPreference
+            android:key="checkbox_double_tap_drag"
+            android:dependency="checkbox_touchscreen_trackpad"
+            android:title="@string/title_checkbox_double_tap_drag"
+            android:summary="@string/summary_checkbox_double_tap_drag"
+            android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="checkbox_confirm_back_exit"
+            android:title="@string/title_checkbox_confirm_back_exit"
+            android:summary="@string/summary_checkbox_confirm_back_exit"
             android:defaultValue="true" />
         <CheckBoxPreference
             android:key="checkbox_mouse_nav_buttons"

@@ -59,6 +59,12 @@ public class PreferenceConfiguration {
     private static final String VIBRATE_FALLBACK_STRENGTH_PREF_STRING = "seekbar_vibrate_fallback_strength";
     private static final String FLIP_FACE_BUTTONS_PREF_STRING = "checkbox_flip_face_buttons";
     private static final String TOUCHSCREEN_TRACKPAD_PREF_STRING = "checkbox_touchscreen_trackpad";
+    private static final String SHOW_MOBILE_TOOLBAR_PREF_STRING = "checkbox_show_mobile_toolbar";
+    private static final String TOUCHPAD_SENSITIVITY_PREF_STRING = "seekbar_touchpad_sensitivity";
+    private static final String TOUCHPAD_SCROLL_SPEED_PREF_STRING = "seekbar_touchpad_scroll_speed";
+    private static final String INVERT_TOUCH_SCROLL_PREF_STRING = "checkbox_invert_touch_scroll";
+    private static final String DOUBLE_TAP_DRAG_PREF_STRING = "checkbox_double_tap_drag";
+    private static final String CONFIRM_BACK_EXIT_PREF_STRING = "checkbox_confirm_back_exit";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     private static final String FRAME_PACING_PREF_STRING = "frame_pacing";
     private static final String ABSOLUTE_MOUSE_MODE_PREF_STRING = "checkbox_absolute_mouse_mode";
@@ -98,6 +104,12 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VIBRATE_FALLBACK_STRENGTH = 100;
     private static final boolean DEFAULT_FLIP_FACE_BUTTONS = false;
     private static final boolean DEFAULT_TOUCHSCREEN_TRACKPAD = true;
+    private static final boolean DEFAULT_SHOW_MOBILE_TOOLBAR = true;
+    private static final int DEFAULT_TOUCHPAD_SENSITIVITY = 100;
+    private static final int DEFAULT_TOUCHPAD_SCROLL_SPEED = 100;
+    private static final boolean DEFAULT_INVERT_TOUCH_SCROLL = false;
+    private static final boolean DEFAULT_DOUBLE_TAP_DRAG = true;
+    private static final boolean DEFAULT_CONFIRM_BACK_EXIT = true;
     private static final String DEFAULT_AUDIO_CONFIG = "2"; // Stereo
     private static final boolean DEFAULT_LATENCY_TOAST = false;
     private static final String DEFAULT_FRAME_PACING = "latency";
@@ -146,6 +158,12 @@ public class PreferenceConfiguration {
     public boolean vibrateFallbackToDevice;
     public int vibrateFallbackToDeviceStrength;
     public boolean touchscreenTrackpad;
+    public boolean showMobileToolbar;
+    public int touchpadSensitivity;
+    public int touchpadScrollSpeed;
+    public boolean invertTouchScroll;
+    public boolean doubleTapDrag;
+    public boolean confirmBackExit;
     public MoonBridge.AudioConfiguration audioConfiguration;
     public int framePacing;
     public boolean absoluteMouseMode;
@@ -443,6 +461,11 @@ public class PreferenceConfiguration {
                 Build.FINGERPRINT.contains("PPR1.180610.011/4079208_2235.1395");
     }
 
+    public static void setTouchscreenTrackpad(Context context, boolean enabled) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        prefs.edit().putBoolean(TOUCHSCREEN_TRACKPAD_PREF_STRING, enabled).apply();
+    }
+
     public static PreferenceConfiguration readPreferences(Context context) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         PreferenceConfiguration config = new PreferenceConfiguration();
@@ -593,6 +616,12 @@ public class PreferenceConfiguration {
         config.vibrateFallbackToDeviceStrength = prefs.getInt(VIBRATE_FALLBACK_STRENGTH_PREF_STRING, DEFAULT_VIBRATE_FALLBACK_STRENGTH);
         config.flipFaceButtons = prefs.getBoolean(FLIP_FACE_BUTTONS_PREF_STRING, DEFAULT_FLIP_FACE_BUTTONS);
         config.touchscreenTrackpad = prefs.getBoolean(TOUCHSCREEN_TRACKPAD_PREF_STRING, DEFAULT_TOUCHSCREEN_TRACKPAD);
+        config.showMobileToolbar = prefs.getBoolean(SHOW_MOBILE_TOOLBAR_PREF_STRING, DEFAULT_SHOW_MOBILE_TOOLBAR);
+        config.touchpadSensitivity = prefs.getInt(TOUCHPAD_SENSITIVITY_PREF_STRING, DEFAULT_TOUCHPAD_SENSITIVITY);
+        config.touchpadScrollSpeed = prefs.getInt(TOUCHPAD_SCROLL_SPEED_PREF_STRING, DEFAULT_TOUCHPAD_SCROLL_SPEED);
+        config.invertTouchScroll = prefs.getBoolean(INVERT_TOUCH_SCROLL_PREF_STRING, DEFAULT_INVERT_TOUCH_SCROLL);
+        config.doubleTapDrag = prefs.getBoolean(DOUBLE_TAP_DRAG_PREF_STRING, DEFAULT_DOUBLE_TAP_DRAG);
+        config.confirmBackExit = prefs.getBoolean(CONFIRM_BACK_EXIT_PREF_STRING, DEFAULT_CONFIRM_BACK_EXIT);
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);

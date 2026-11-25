@@ -14,12 +14,20 @@ public class RelativeTouchContext implements TouchContext {
     private int originalTouchX = 0;
     private int originalTouchY = 0;
     private long originalTouchTime = 0;
+    private long lastSingleTapUpTime = 0;
+    private int lastSingleTapUpX = 0;
+    private int lastSingleTapUpY = 0;
+    private boolean leftTapReleasePending = false;
     private boolean cancelled;
     private boolean confirmedMove;
     private boolean confirmedDrag;
     private boolean confirmedScroll;
     private double distanceMoved;
     private double xFactor, yFactor;
+    private double residualX = 0;
+    private double residualY = 0;
+    private double residualScrollX = 0;
+    private double residualScrollY = 0;
     private int pointerCount;
     private int maxPointerCountInGesture;
 
@@ -30,6 +38,10 @@ public class RelativeTouchContext implements TouchContext {
     private final View targetView;
     private final PreferenceConfiguration prefConfig;
     private final Handler handler;
+
+    private final int tapMovementThreshold;
+    private final int tapDistanceThreshold;
+    private final int doubleTapDragDistanceThreshold;
 
     private final Runnable dragTimerRunnable = new Runnable() {
         @Override
@@ -55,6 +67,7 @@ public class RelativeTouchContext implements TouchContext {
             new Runnable() {
                 @Override
                 public void run() {
+                    leftTapReleasePending = false;
                     conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_LEFT);
                 }
             },
@@ -84,10 +97,9 @@ public class RelativeTouchContext implements TouchContext {
             }
     };
 
-    private static final int TAP_MOVEMENT_THRESHOLD = 20;
-    private static final int TAP_DISTANCE_THRESHOLD = 25;
     private static final int TAP_TIME_THRESHOLD = 250;
     private static final int DRAG_TIME_THRESHOLD = 650;
+    private static final int DOUBLE_TAP_DRAG_TIME_THRESHOLD = 320;
 
     private static final int SCROLL_SPEED_FACTOR = 5;
 
@@ -102,6 +114,11 @@ public class RelativeTouchContext implements TouchContext {
         this.targetView = view;
         this.prefConfig = prefConfig;
         this.handler = new Handler(Looper.getMainLooper());
+
+        float density = view.getResources().getDisplayMetrics().density;
+        this.tapMovementThreshold = Math.max(12, Math.round(8 * density));
+        this.tapDistanceThreshold = Math.max(16, Math.round(10 * density));
+        this.doubleTapDragDistanceThreshold = Math.max(24, Math.round(24 * density));
     }
 
     @Override
@@ -114,8 +131,8 @@ public class RelativeTouchContext implements TouchContext {
     {
         int xDelta = Math.abs(touchX - originalTouchX);
         int yDelta = Math.abs(touchY - originalTouchY);
-        return xDelta <= TAP_MOVEMENT_THRESHOLD &&
-                yDelta <= TAP_MOVEMENT_THRESHOLD;
+        return xDelta <= tapMovementThreshold &&
+                yDelta <= tapMovementThreshold;
     }
 
     private boolean isTap(long eventTime)
@@ -148,12 +165,17 @@ public class RelativeTouchContext implements TouchContext {
     @Override
     public boolean touchDownEvent(int eventX, int eventY, long eventTime, boolean isNewFinger)
     {
+        int width = Math.max(1, targetView.getWidth());
+        int height = Math.max(1, targetView.getHeight());
+
         // Get the view dimensions to scale inputs on this touch
-        xFactor = referenceWidth / (double)targetView.getWidth();
-        yFactor = referenceHeight / (double)targetView.getHeight();
+        xFactor = referenceWidth / (double)width;
+        yFactor = referenceHeight / (double)height;
 
         originalTouchX = lastTouchX = eventX;
         originalTouchY = lastTouchY = eventY;
+        residualX = residualY = 0;
+        residualScrollX = residualScrollY = 0;
 
         if (isNewFinger) {
             maxPointerCountInGesture = pointerCount;
@@ -162,8 +184,26 @@ public class RelativeTouchContext implements TouchContext {
             distanceMoved = 0;
 
             if (actionIndex == 0) {
-                // Start the timer for engaging a drag
-                startDragTimer();
+                boolean isDoubleTapDrag = prefConfig.doubleTapDrag &&
+                        pointerCount == 1 &&
+                        lastSingleTapUpTime != 0 &&
+                        (eventTime - lastSingleTapUpTime) <= DOUBLE_TAP_DRAG_TIME_THRESHOLD &&
+                        Math.hypot(eventX - lastSingleTapUpX, eventY - lastSingleTapUpY) <= doubleTapDragDistanceThreshold;
+
+                if (isDoubleTapDrag) {
+                    lastSingleTapUpTime = 0;
+                    if (leftTapReleasePending) {
+                        handler.removeCallbacks(buttonUpRunnables[MouseButtonPacket.BUTTON_LEFT - 1]);
+                        leftTapReleasePending = false;
+                        conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_LEFT);
+                    }
+                    confirmedDrag = true;
+                    conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_LEFT);
+                }
+                else {
+                    // Start the timer for engaging a drag
+                    startDragTimer();
+                }
             }
         }
 
@@ -188,6 +228,13 @@ public class RelativeTouchContext implements TouchContext {
         }
         else if (isTap(eventTime))
         {
+            if (buttonIndex == MouseButtonPacket.BUTTON_LEFT && maxPointerCountInGesture == 1) {
+                lastSingleTapUpTime = eventTime;
+                lastSingleTapUpX = eventX;
+                lastSingleTapUpY = eventY;
+                leftTapReleasePending = true;
+            }
+
             // Lower the mouse button
             conn.sendMouseButtonDown(buttonIndex);
 
@@ -223,7 +270,7 @@ public class RelativeTouchContext implements TouchContext {
 
         // Check if we've exceeded the maximum distance moved
         distanceMoved += Math.sqrt(Math.pow(eventX - lastTouchX, 2) + Math.pow(eventY - lastTouchY, 2));
-        if (distanceMoved >= TAP_DISTANCE_THRESHOLD) {
+        if (distanceMoved >= tapDistanceThreshold) {
             confirmedMove = true;
             cancelDragTimer();
             return;
@@ -251,52 +298,58 @@ public class RelativeTouchContext implements TouchContext {
 
             // We only send moves and drags for the primary touch point
             if (actionIndex == 0) {
-                int deltaX = eventX - lastTouchX;
-                int deltaY = eventY - lastTouchY;
-
-                // Scale the deltas based on the factors passed to our constructor
-                deltaX = (int) Math.round((double) Math.abs(deltaX) * xFactor);
-                deltaY = (int) Math.round((double) Math.abs(deltaY) * yFactor);
-
-                // Fix up the signs
-                if (eventX < lastTouchX) {
-                    deltaX = -deltaX;
-                }
-                if (eventY < lastTouchY) {
-                    deltaY = -deltaY;
-                }
-
                 if (pointerCount == 2) {
                     if (confirmedScroll) {
-                        conn.sendMouseHighResScroll((short)(deltaY * SCROLL_SPEED_FACTOR));
+                        double scrollScale = prefConfig.touchpadScrollSpeed / 100.0;
+                        double scrollSign = prefConfig.invertTouchScroll ? -1.0 : 1.0;
+
+                        double rawScrollY = (eventY - lastTouchY) * yFactor * SCROLL_SPEED_FACTOR * scrollScale * scrollSign + residualScrollY;
+                        double rawScrollX = -(eventX - lastTouchX) * xFactor * SCROLL_SPEED_FACTOR * scrollScale * scrollSign + residualScrollX;
+
+                        if (Math.abs(rawScrollY) >= Math.abs(rawScrollX)) {
+                            int scrollY = (int) Math.round(rawScrollY);
+                            residualScrollY = rawScrollY - scrollY;
+                            residualScrollX = 0;
+                            if (scrollY != 0) {
+                                conn.sendMouseHighResScroll((short) scrollY);
+                            }
+                        }
+                        else {
+                            int scrollX = (int) Math.round(rawScrollX);
+                            residualScrollX = rawScrollX - scrollX;
+                            residualScrollY = 0;
+                            if (scrollX != 0) {
+                                conn.sendMouseHighResHScroll((short) scrollX);
+                            }
+                        }
                     }
                 } else {
-                    if (prefConfig.absoluteMouseMode) {
-                        conn.sendMouseMoveAsMousePosition(
-                                (short) deltaX,
-                                (short) deltaY,
-                                (short) targetView.getWidth(),
-                                (short) targetView.getHeight());
-                    }
-                    else {
-                        conn.sendMouseMove((short) deltaX, (short) deltaY);
-                    }
-                }
+                    double sensitivityScale = prefConfig.touchpadSensitivity / 100.0;
+                    double rawDeltaX = (eventX - lastTouchX) * xFactor * sensitivityScale + residualX;
+                    double rawDeltaY = (eventY - lastTouchY) * yFactor * sensitivityScale + residualY;
 
-                // If the scaling factor ended up rounding deltas to zero, wait until they are
-                // non-zero to update lastTouch that way devices that report small touch events often
-                // will work correctly
-                if (deltaX != 0) {
-                    lastTouchX = eventX;
-                }
-                if (deltaY != 0) {
-                    lastTouchY = eventY;
+                    int deltaX = (int) Math.round(rawDeltaX);
+                    int deltaY = (int) Math.round(rawDeltaY);
+                    residualX = rawDeltaX - deltaX;
+                    residualY = rawDeltaY - deltaY;
+
+                    if (deltaX != 0 || deltaY != 0) {
+                        if (prefConfig.absoluteMouseMode) {
+                            conn.sendMouseMoveAsMousePosition(
+                                    (short) deltaX,
+                                    (short) deltaY,
+                                    (short) targetView.getWidth(),
+                                    (short) targetView.getHeight());
+                        }
+                        else {
+                            conn.sendMouseMove((short) deltaX, (short) deltaY);
+                        }
+                    }
                 }
             }
-            else {
-                lastTouchX = eventX;
-                lastTouchY = eventY;
-            }
+
+            lastTouchX = eventX;
+            lastTouchY = eventY;
         }
 
         return true;
@@ -312,6 +365,7 @@ public class RelativeTouchContext implements TouchContext {
         // If it was a confirmed drag, we'll need to raise the button now
         if (confirmedDrag) {
             conn.sendMouseButtonUp(getMouseButtonIndex());
+            confirmedDrag = false;
         }
     }
 
@@ -322,6 +376,10 @@ public class RelativeTouchContext implements TouchContext {
 
     @Override
     public void setPointerCount(int pointerCount) {
+        if (this.pointerCount != pointerCount) {
+            residualX = residualY = 0;
+            residualScrollX = residualScrollY = 0;
+        }
         this.pointerCount = pointerCount;
 
         if (pointerCount > maxPointerCountInGesture) {

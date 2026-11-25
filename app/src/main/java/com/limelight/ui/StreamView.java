@@ -1,10 +1,13 @@
 package com.limelight.ui;
 
-import android.annotation.TargetApi;
 import android.content.Context;
+import android.text.InputType;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.SurfaceView;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
 
 public class StreamView extends SurfaceView {
     private double desiredAspectRatio;
@@ -59,6 +62,52 @@ public class StreamView extends SurfaceView {
     }
 
     @Override
+    public boolean onCheckIsTextEditor() {
+        return true;
+    }
+
+    @Override
+    public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI |
+                EditorInfo.IME_FLAG_NO_FULLSCREEN |
+                EditorInfo.IME_ACTION_NONE;
+        return new BaseInputConnection(this, false) {
+            @Override
+            public boolean commitText(CharSequence text, int newCursorPosition) {
+                if (inputCallbacks != null && text != null && text.length() > 0) {
+                    inputCallbacks.handleImeText(text.toString());
+                    return true;
+                }
+                return super.commitText(text, newCursorPosition);
+            }
+
+            @Override
+            public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+                if (inputCallbacks != null) {
+                    for (int i = 0; i < beforeLength; i++) {
+                        inputCallbacks.handleImeKey(KeyEvent.KEYCODE_DEL);
+                    }
+                    for (int i = 0; i < afterLength; i++) {
+                        inputCallbacks.handleImeKey(KeyEvent.KEYCODE_FORWARD_DEL);
+                    }
+                    return true;
+                }
+                return super.deleteSurroundingText(beforeLength, afterLength);
+            }
+
+            @Override
+            public boolean performEditorAction(int editorAction) {
+                if (inputCallbacks != null) {
+                    inputCallbacks.handleImeKey(KeyEvent.KEYCODE_ENTER);
+                    return true;
+                }
+                return super.performEditorAction(editorAction);
+            }
+        };
+    }
+
+    @Override
     public boolean onKeyPreIme(int keyCode, KeyEvent event) {
         // This callbacks allows us to override dumb IME behavior like when
         // Samsung's default keyboard consumes Shift+Space.
@@ -81,5 +130,7 @@ public class StreamView extends SurfaceView {
     public interface InputCallbacks {
         boolean handleKeyUp(KeyEvent event);
         boolean handleKeyDown(KeyEvent event);
+        void handleImeText(String text);
+        void handleImeKey(int androidKeyCode);
     }
 }

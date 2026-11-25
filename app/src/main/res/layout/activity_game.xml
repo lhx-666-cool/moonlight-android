@@ -50,4 +50,6 @@
         android:preferKeepClear="true"
         android:visibility="gone" />
 
+    <include layout="@layout/layout_mobile_controls" />
+
 </merge>

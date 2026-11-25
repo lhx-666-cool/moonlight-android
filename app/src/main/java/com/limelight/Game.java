@@ -30,6 +30,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
+import com.limelight.ui.MobileControlsOverlay;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
@@ -60,6 +61,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Rational;
 import android.view.Display;
 import android.view.InputDevice;
@@ -132,11 +135,18 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private InputCaptureProvider inputCaptureProvider;
     private int modifierFlags = 0;
+    private int extraBarModifierFlags = 0;
     private boolean grabbedInput = true;
     private boolean cursorVisible = false;
     private boolean waitingForAllModifiersUp = false;
     private int specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
     private StreamView streamView;
+    private MobileControlsOverlay mobileControlsOverlay;
+    private boolean virtualControllerVisible = false;
+    private boolean hoverOnlyMode = false;
+    private long lastBackPressTime = 0;
+    private final Handler mobileInputHandler = new Handler(Looper.getMainLooper());
+    private KeyCharacterMap virtualKeyCharacterMap;
     private long lastAbsTouchUpTime = 0;
     private long lastAbsTouchDownTime = 0;
     private float lastAbsTouchUpX, lastAbsTouchUpY;
@@ -493,16 +503,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
 
         // Initialize touch contexts
-        for (int i = 0; i < touchContextMap.length; i++) {
-            if (!prefConfig.touchscreenTrackpad) {
-                touchContextMap[i] = new AbsoluteTouchContext(conn, i, streamView);
-            }
-            else {
-                touchContextMap[i] = new RelativeTouchContext(conn, i,
-                        REFERENCE_HORIZ_RES, REFERENCE_VERT_RES,
-                        streamView, prefConfig);
-            }
-        }
+        initTouchContexts();
 
         if (prefConfig.onscreenController) {
             // create virtual onscreen controller
@@ -511,6 +512,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     this);
             virtualController.refreshLayout();
             virtualController.show();
+            virtualControllerVisible = true;
+        }
+
+        if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
+            initMobileControlsOverlay();
         }
 
         if (prefConfig.usbDriver) {
@@ -591,8 +597,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             if (isInPictureInPictureMode()) {
                 isHidingOverlays = true;
 
-                if (virtualController != null) {
+                if (virtualController != null && virtualControllerVisible) {
                     virtualController.hide();
+                }
+
+                if (mobileControlsOverlay != null) {
+                    mobileControlsOverlay.setHiddenForPip(true);
                 }
 
                 performanceOverlayView.setVisibility(View.GONE);
@@ -609,8 +619,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                 // Restore overlays to previous state when leaving PiP
 
-                if (virtualController != null) {
+                if (virtualController != null && virtualControllerVisible) {
                     virtualController.show();
+                }
+
+                if (mobileControlsOverlay != null) {
+                    mobileControlsOverlay.setHiddenForPip(false);
                 }
 
                 if (prefConfig.enablePerfOverlay) {
@@ -1036,6 +1050,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void onDestroy() {
         super.onDestroy();
 
+        mobileInputHandler.removeCallbacksAndMessages(null);
+        if (mobileControlsOverlay != null) {
+            mobileControlsOverlay.destroy();
+        }
+
         if (controllerHandler != null) {
             controllerHandler.destroy();
         }
@@ -1063,6 +1082,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     @Override
     protected void onPause() {
         if (isFinishing()) {
+            if (mobileControlsOverlay != null) {
+                mobileControlsOverlay.releaseAllActiveInputs();
+            }
+
             // Stop any further input device notifications before we lose focus (and pointer capture)
             if (controllerHandler != null) {
                 controllerHandler.stop();
@@ -1081,6 +1104,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         SpinnerDialog.closeDialogs(this);
         Dialog.closeDialogs();
+
+        if (mobileControlsOverlay != null) {
+            mobileControlsOverlay.releaseAllActiveInputs();
+        }
 
         if (virtualController != null) {
             virtualController.hide();
@@ -1316,7 +1343,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private byte getModifierState() {
-        return (byte) modifierFlags;
+        return (byte) (modifierFlags | extraBarModifierFlags);
     }
 
     @Override
@@ -1500,8 +1527,23 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     @Override
     public void toggleKeyboard() {
         LimeLog.info("Toggling keyboard overlay");
+        streamView.requestFocus();
         InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        inputManager.toggleSoftInput(0, 0);
+        if (inputManager == null) {
+            return;
+        }
+
+        Rect visibleFrame = new Rect();
+        View decorView = getWindow().getDecorView();
+        decorView.getWindowVisibleDisplayFrame(visibleFrame);
+        int screenHeight = decorView.getHeight();
+        boolean imeVisible = screenHeight > 0 && (screenHeight - visibleFrame.bottom) > screenHeight * 0.15f;
+        if (imeVisible) {
+            inputManager.hideSoftInputFromWindow(streamView.getWindowToken(), 0);
+        }
+        else {
+            inputManager.showSoftInput(streamView, InputMethodManager.SHOW_IMPLICIT);
+        }
     }
 
     private byte getLiTouchTypeFromEvent(MotionEvent event) {
@@ -2696,5 +2738,346 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             default:
                 return false;
         }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (mobileControlsOverlay != null) {
+            if (mobileControlsOverlay.isQuickPanelOpen()) {
+                mobileControlsOverlay.closeQuickPanel();
+                return;
+            }
+            if (mobileControlsOverlay.isExtraKeysVisible()) {
+                mobileControlsOverlay.showExtraKeysBar(false);
+                return;
+            }
+        }
+
+        if (prefConfig != null && prefConfig.confirmBackExit && connected) {
+            long now = SystemClock.uptimeMillis();
+            if (now - lastBackPressTime > 2000) {
+                lastBackPressTime = now;
+                Toast.makeText(this, R.string.toast_press_back_again_exit, Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+
+        super.onBackPressed();
+    }
+
+    @Override
+    public void handleImeText(String text) {
+        if (!grabbedInput || conn == null || text == null || text.isEmpty()) {
+            return;
+        }
+
+        if ("\n".equals(text)) {
+            sendVirtualKeyTap(KeyEvent.KEYCODE_ENTER);
+            return;
+        }
+
+        // When Ctrl/Alt/Win is active on the Extra Keys Bar, translate single ASCII chars
+        // into virtual keycodes instead of UTF-8 text so combos like Ctrl+C work via IME.
+        boolean hasNonShiftModifier = (extraBarModifierFlags &
+                (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_ALT | KeyboardPacket.MODIFIER_META)) != 0;
+        if (hasNonShiftModifier && text.length() == 1) {
+            if (virtualKeyCharacterMap == null) {
+                virtualKeyCharacterMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
+            }
+            KeyEvent[] events = virtualKeyCharacterMap.getEvents(new char[] { text.charAt(0) });
+            if (events != null && events.length > 0) {
+                for (KeyEvent e : events) {
+                    short mapped = keyboardTranslator.translate(e.getKeyCode(), -1);
+                    if (mapped != 0) {
+                        byte action = (e.getAction() == KeyEvent.ACTION_DOWN)
+                                ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP;
+                        byte mods = (byte) (getModifierState(e.getKeyCode()) |
+                                (e.isShiftPressed() ? KeyboardPacket.MODIFIER_SHIFT : 0));
+                        conn.sendKeyboardInput(mapped, action, mods, (byte) 0);
+                    }
+                }
+                if (mobileControlsOverlay != null) {
+                    mobileControlsOverlay.consumeLatchedModifiers();
+                }
+                return;
+            }
+        }
+
+        conn.sendUtf8Text(text);
+        if ((extraBarModifierFlags & KeyboardPacket.MODIFIER_SHIFT) != 0 && mobileControlsOverlay != null) {
+            mobileControlsOverlay.consumeLatchedModifiers();
+        }
+    }
+
+    @Override
+    public void handleImeKey(int androidKeyCode) {
+        if (!grabbedInput || conn == null) {
+            return;
+        }
+        sendVirtualKeyTap(androidKeyCode);
+    }
+
+    private void initTouchContexts() {
+        for (int i = 0; i < touchContextMap.length; i++) {
+            if (touchContextMap[i] != null) {
+                touchContextMap[i].cancelTouch();
+            }
+            if (!prefConfig.touchscreenTrackpad) {
+                AbsoluteTouchContext absContext = new AbsoluteTouchContext(conn, i, streamView, prefConfig);
+                absContext.setHoverOnlyMode(hoverOnlyMode);
+                touchContextMap[i] = absContext;
+            }
+            else {
+                touchContextMap[i] = new RelativeTouchContext(conn, i,
+                        REFERENCE_HORIZ_RES, REFERENCE_VERT_RES,
+                        streamView, prefConfig);
+            }
+        }
+    }
+
+    private int modifierMaskToAndroidKeyCode(byte modifierMask) {
+        switch (modifierMask) {
+            case KeyboardPacket.MODIFIER_CTRL:
+                return KeyEvent.KEYCODE_CTRL_LEFT;
+            case KeyboardPacket.MODIFIER_ALT:
+                return KeyEvent.KEYCODE_ALT_LEFT;
+            case KeyboardPacket.MODIFIER_SHIFT:
+                return KeyEvent.KEYCODE_SHIFT_LEFT;
+            case KeyboardPacket.MODIFIER_META:
+                return KeyEvent.KEYCODE_META_LEFT;
+            default:
+                return KeyEvent.KEYCODE_UNKNOWN;
+        }
+    }
+
+    private void sendVirtualKeyTap(final int androidKeyCode) {
+        if (conn == null || androidKeyCode == KeyEvent.KEYCODE_UNKNOWN) {
+            return;
+        }
+        final short keyMap = keyboardTranslator.translate(androidKeyCode, -1);
+        if (keyMap == 0) {
+            return;
+        }
+
+        final byte mods = getModifierState(androidKeyCode);
+        conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, mods, (byte) 0);
+        mobileInputHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, getModifierState(androidKeyCode), (byte) 0);
+                if (mobileControlsOverlay != null) {
+                    mobileControlsOverlay.consumeLatchedModifiers();
+                }
+            }
+        }, 40);
+    }
+
+    private void sendKeyCombo(final int[] androidKeyCodes) {
+        if (conn == null || androidKeyCodes == null || androidKeyCodes.length == 0) {
+            return;
+        }
+
+        final short[] mappedKeys = new short[androidKeyCodes.length];
+        for (int i = 0; i < androidKeyCodes.length; i++) {
+            mappedKeys[i] = keyboardTranslator.translate(androidKeyCodes[i], -1);
+            if (mappedKeys[i] == 0) {
+                return;
+            }
+        }
+
+        int comboMods = getModifierState();
+        for (int i = 0; i < androidKeyCodes.length; i++) {
+            int kc = androidKeyCodes[i];
+            if (kc == KeyEvent.KEYCODE_CTRL_LEFT || kc == KeyEvent.KEYCODE_CTRL_RIGHT) {
+                comboMods |= KeyboardPacket.MODIFIER_CTRL;
+            }
+            else if (kc == KeyEvent.KEYCODE_ALT_LEFT || kc == KeyEvent.KEYCODE_ALT_RIGHT) {
+                comboMods |= KeyboardPacket.MODIFIER_ALT;
+            }
+            else if (kc == KeyEvent.KEYCODE_SHIFT_LEFT || kc == KeyEvent.KEYCODE_SHIFT_RIGHT) {
+                comboMods |= KeyboardPacket.MODIFIER_SHIFT;
+            }
+            else if (kc == KeyEvent.KEYCODE_META_LEFT || kc == KeyEvent.KEYCODE_META_RIGHT) {
+                comboMods |= KeyboardPacket.MODIFIER_META;
+            }
+            conn.sendKeyboardInput(mappedKeys[i], KeyboardPacket.KEY_DOWN, (byte) comboMods, (byte) 0);
+        }
+
+        final int finalMods = comboMods;
+        mobileInputHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                int releaseMods = finalMods;
+                for (int i = androidKeyCodes.length - 1; i >= 0; i--) {
+                    int kc = androidKeyCodes[i];
+                    if (kc == KeyEvent.KEYCODE_CTRL_LEFT || kc == KeyEvent.KEYCODE_CTRL_RIGHT) {
+                        releaseMods &= ~KeyboardPacket.MODIFIER_CTRL;
+                    }
+                    else if (kc == KeyEvent.KEYCODE_ALT_LEFT || kc == KeyEvent.KEYCODE_ALT_RIGHT) {
+                        releaseMods &= ~KeyboardPacket.MODIFIER_ALT;
+                    }
+                    else if (kc == KeyEvent.KEYCODE_SHIFT_LEFT || kc == KeyEvent.KEYCODE_SHIFT_RIGHT) {
+                        releaseMods &= ~KeyboardPacket.MODIFIER_SHIFT;
+                    }
+                    else if (kc == KeyEvent.KEYCODE_META_LEFT || kc == KeyEvent.KEYCODE_META_RIGHT) {
+                        releaseMods &= ~KeyboardPacket.MODIFIER_META;
+                    }
+                    conn.sendKeyboardInput(mappedKeys[i], KeyboardPacket.KEY_UP, (byte) releaseMods, (byte) 0);
+                }
+            }
+        }, 60);
+    }
+
+    private void initMobileControlsOverlay() {
+        FrameLayout rootParent = (FrameLayout) streamView.getParent();
+        mobileControlsOverlay = new MobileControlsOverlay(this, rootParent, new MobileControlsOverlay.Callbacks() {
+            @Override
+            public void onToggleKeyboard() {
+                toggleKeyboard();
+            }
+
+            @Override
+            public boolean onToggleTouchMode() {
+                prefConfig.touchscreenTrackpad = !prefConfig.touchscreenTrackpad;
+                PreferenceConfiguration.setTouchscreenTrackpad(Game.this, prefConfig.touchscreenTrackpad);
+                if (prefConfig.touchscreenTrackpad) {
+                    hoverOnlyMode = false;
+                }
+                initTouchContexts();
+                return prefConfig.touchscreenTrackpad;
+            }
+
+            @Override
+            public boolean isTrackpadMode() {
+                return prefConfig.touchscreenTrackpad;
+            }
+
+            @Override
+            public boolean onToggleVirtualController() {
+                if (virtualController == null) {
+                    virtualController = new VirtualController(controllerHandler,
+                            (FrameLayout) streamView.getParent(),
+                            Game.this);
+                    virtualController.refreshLayout();
+                    virtualController.show();
+                    virtualControllerVisible = true;
+                }
+                else if (virtualControllerVisible) {
+                    virtualController.hide();
+                    virtualControllerVisible = false;
+                }
+                else {
+                    virtualController.show();
+                    virtualControllerVisible = true;
+                }
+                return virtualControllerVisible;
+            }
+
+            @Override
+            public boolean isVirtualControllerVisible() {
+                return virtualControllerVisible;
+            }
+
+            @Override
+            public boolean onToggleHoverMode() {
+                if (prefConfig.touchscreenTrackpad) {
+                    // Auto-switch to Direct Touch when enabling hover-only mode
+                    prefConfig.touchscreenTrackpad = false;
+                    PreferenceConfiguration.setTouchscreenTrackpad(Game.this, false);
+                    hoverOnlyMode = true;
+                    initTouchContexts();
+                    return true;
+                }
+                hoverOnlyMode = !hoverOnlyMode;
+                for (TouchContext ctx : touchContextMap) {
+                    if (ctx instanceof AbsoluteTouchContext) {
+                        ((AbsoluteTouchContext) ctx).setHoverOnlyMode(hoverOnlyMode);
+                    }
+                }
+                return hoverOnlyMode;
+            }
+
+            @Override
+            public boolean isHoverMode() {
+                return !prefConfig.touchscreenTrackpad && hoverOnlyMode;
+            }
+
+            @Override
+            public boolean onTogglePerfOverlay() {
+                prefConfig.enablePerfOverlay = !prefConfig.enablePerfOverlay;
+                performanceOverlayView.setVisibility(prefConfig.enablePerfOverlay ? View.VISIBLE : View.GONE);
+                return prefConfig.enablePerfOverlay;
+            }
+
+            @Override
+            public boolean isPerfOverlayVisible() {
+                return performanceOverlayView.getVisibility() == View.VISIBLE;
+            }
+
+            @Override
+            public void onDisconnect() {
+                finish();
+            }
+
+            @Override
+            public void onMouseClick(final byte mouseButton) {
+                if (conn == null) {
+                    return;
+                }
+                conn.sendMouseButtonDown(mouseButton);
+                mobileInputHandler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        conn.sendMouseButtonUp(mouseButton);
+                    }
+                }, 60);
+            }
+
+            @Override
+            public void onMouseButtonHold(byte mouseButton, boolean down) {
+                if (conn == null) {
+                    return;
+                }
+                if (down) {
+                    conn.sendMouseButtonDown(mouseButton);
+                }
+                else {
+                    conn.sendMouseButtonUp(mouseButton);
+                }
+            }
+
+            @Override
+            public void onStickyModifierChanged(byte modifierMask, boolean down) {
+                if (down) {
+                    extraBarModifierFlags |= modifierMask;
+                }
+                else {
+                    extraBarModifierFlags &= ~modifierMask;
+                }
+
+                if (conn == null) {
+                    return;
+                }
+                int keyCode = modifierMaskToAndroidKeyCode(modifierMask);
+                short keyMap = keyboardTranslator.translate(keyCode, -1);
+                if (keyMap != 0) {
+                    conn.sendKeyboardInput(keyMap,
+                            down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP,
+                            getModifierState(keyCode),
+                            (byte) 0);
+                }
+            }
+
+            @Override
+            public void onSendKeyTap(int androidKeyCode) {
+                sendVirtualKeyTap(androidKeyCode);
+            }
+
+            @Override
+            public void onSendKeyCombo(int[] androidKeyCodes) {
+                sendKeyCombo(androidKeyCodes);
+            }
+        });
+        mobileControlsOverlay.setEnabled(prefConfig.showMobileToolbar);
     }
 }

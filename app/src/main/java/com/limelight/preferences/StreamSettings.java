@@ -277,11 +277,33 @@ public class StreamSettings extends Activity {
             addPreferencesFromResource(R.xml.preferences);
             PreferenceScreen screen = getPreferenceScreen();
 
-            // hide on-screen controls category on non touch screen devices
+            // hide on-screen controls and touch-only input options on non touch screen devices
             if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
-                PreferenceCategory category =
+                PreferenceCategory oscCategory =
                         (PreferenceCategory) findPreference("category_onscreen_controls");
-                screen.removePreference(category);
+                if (oscCategory != null) {
+                    screen.removePreference(oscCategory);
+                }
+
+                PreferenceCategory inputCategory =
+                        (PreferenceCategory) findPreference("category_input_settings");
+                if (inputCategory != null) {
+                    String[] touchOnlyPrefs = new String[] {
+                            "checkbox_show_mobile_toolbar",
+                            "checkbox_touchscreen_trackpad",
+                            "seekbar_touchpad_sensitivity",
+                            "seekbar_touchpad_scroll_speed",
+                            "checkbox_invert_touch_scroll",
+                            "checkbox_double_tap_drag",
+                            "checkbox_confirm_back_exit"
+                    };
+                    for (String key : touchOnlyPrefs) {
+                        Preference pref = findPreference(key);
+                        if (pref != null) {
+                            inputCategory.removePreference(pref);
+                        }
+                    }
+                }
             }
 
             // Hide remote desktop mouse mode on pre-Oreo (which doesn't have pointer capture)

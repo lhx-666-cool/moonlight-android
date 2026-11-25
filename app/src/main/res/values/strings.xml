@@ -303,4 +303,44 @@
     <string name="analogscroll_none">None (both sticks move the mouse)</string>
     <string name="analogscroll_right">Right analog stick</string>
     <string name="analogscroll_left">Left analog stick</string>
+
+    <!-- Mobile Touch / No-Mouse-No-Keyboard Optimization Strings -->
+    <string name="title_checkbox_show_mobile_toolbar">Show floating mobile toolbar</string>
+    <string name="summary_checkbox_show_mobile_toolbar">Show a draggable floating button in stream for virtual keyboard, PC special keys, mouse buttons, and mode switching</string>
+    <string name="title_touchpad_sensitivity">Trackpad cursor sensitivity</string>
+    <string name="summary_touchpad_sensitivity">Adjust mouse pointer speed when using touchscreen trackpad mode</string>
+    <string name="suffix_touchpad_sensitivity">%</string>
+    <string name="title_touchpad_scroll_speed">Touch scroll speed</string>
+    <string name="summary_touchpad_scroll_speed">Adjust two-finger scroll wheel speed on touchscreen</string>
+    <string name="suffix_touchpad_scroll_speed">%</string>
+    <string name="title_checkbox_invert_touch_scroll">Invert touch scrolling</string>
+    <string name="summary_checkbox_invert_touch_scroll">Reverse two-finger vertical and horizontal scroll direction</string>
+    <string name="title_checkbox_double_tap_drag">Double-tap and hold to drag</string>
+    <string name="summary_checkbox_double_tap_drag">Double-tap and hold in trackpad mode to drag windows or select text without waiting for long press</string>
+    <string name="title_checkbox_confirm_back_exit">Confirm before exiting stream</string>
+    <string name="summary_checkbox_confirm_back_exit">Require pressing Back twice within 2 seconds to disconnect, preventing accidental exits from edge swipe gestures</string>
+
+    <string name="mobile_toolbar_title">Mobile Controls</string>
+    <string name="mobile_btn_keyboard">Keyboard</string>
+    <string name="mobile_btn_extra_keys">PC Keys</string>
+    <string name="mobile_btn_mode_trackpad">Mode: Trackpad</string>
+    <string name="mobile_btn_mode_direct">Mode: Direct Touch</string>
+    <string name="mobile_btn_mouse_bar">Mouse Bar</string>
+    <string name="mobile_btn_osc">Gamepad</string>
+    <string name="mobile_btn_hover_mode">Hover Only</string>
+    <string name="mobile_btn_perf">Perf Overlay</string>
+    <string name="mobile_btn_disconnect">Disconnect</string>
+    <string name="mobile_section_shortcuts">Quick PC Shortcuts</string>
+    <string name="mobile_mouse_left">L</string>
+    <string name="mobile_mouse_middle">M</string>
+    <string name="mobile_mouse_right">R</string>
+    <string name="mobile_mouse_drag_lock">Drag</string>
+    <string name="mobile_mouse_hover">Hover</string>
+    <string name="toast_switched_to_trackpad">Switched to Trackpad mode</string>
+    <string name="toast_switched_to_direct_touch">Switched to Direct Touch mode</string>
+    <string name="toast_hover_mode_on">Direct Touch: Hover-only mode ON (move cursor without clicking)</string>
+    <string name="toast_hover_mode_off">Direct Touch: Hover-only mode OFF</string>
+    <string name="toast_drag_lock_on">Left mouse button held (Drag Lock ON)</string>
+    <string name="toast_drag_lock_off">Left mouse button released</string>
+    <string name="toast_press_back_again_exit">Press Back again to disconnect</string>
 </resources>
